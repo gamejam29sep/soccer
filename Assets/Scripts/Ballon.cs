@@ -14,17 +14,29 @@ public class Ballon : NetworkBehaviour // objet réseau
     [SerializeField] private float maxSpeed; // si on veut limiter la vitesse max de la balle (inutilisé)
 
     // Création d'un singleton. Il ne doit y avoir qu'une seule balle.
-    private void Awake()
+    public override void OnNetworkSpawn()
     {
-        if (instance == null)
+        base.OnNetworkSpawn();
+
+        // Seul le serveur gère la balle et lance sa physique.
+        if (!IsServer) return;
+
+        if (instance != null && instance != this)
         {
-            instance = this;
+            Debug.LogError("Deux ballons réseau actifs sur le serveur.", this);
             return;
         }
-        Destroy(gameObject);
 
+        instance = this;
     }
 
+    public override void OnNetworkDespawn()
+    {
+        if (instance == this)
+            instance = null;
+
+        base.OnNetworkDespawn();
+    }
 
     /* Vérificaiton de la position de la balle pour voir si un but est compté
     - Seul le serveur fait la validation

@@ -39,6 +39,12 @@ public class GameManager : NetworkBehaviour //pour un network object
     // la place au milieu et qui lui donne une vélocité.
     public void NouvellePartie()
     {
+        if (Ballon.instance == null)
+        {
+            Debug.LogError("Aucun ballon actif dans la scène Gameplay.");
+            return;
+        }
+
         partieEnCours = true;
         Ballon.instance.LanceBalleMilieu();
     }
