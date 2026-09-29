@@ -1,34 +1,88 @@
 using UnityEngine;
-using System;
 using System.Collections;
 using Unity.Netcode;
-using TMPro;
-using Unity.Netcode.Components;// pour accéder aux propriétés du NetworkTransform
+using Unity.Netcode.Components;
 
-
-public class Ballon : NetworkBehaviour // objet réseau
+public class Ballon : NetworkBehaviour
 {
-    public static Ballon instance; // Singleton
-    float maxDistanceX = 25f; // moitié de la largeur de la table, pour savoir si un but est compté
-    [SerializeField] private float nombreDeBonds; //compte du nombre de bonds de la balle // Servira plus tard
-    [SerializeField] private float maxSpeed; // si on veut limiter la vitesse max de la balle (inutilisé)
+    public static Ballon instance;
 
-    // Création d'un singleton. Il ne doit y avoir qu'une seule balle.
+    [SerializeField] private float nombreDeBonds;
+
+    [Header("Audio")]
+    [SerializeField] private AudioSource audioSource;
+    [SerializeField] private AudioClip sonEchec;
+
+    private Rigidbody rb;
+    private NetworkTransform networkTransform;
+
+    private Collider[] collidersBallon;
+    private Renderer[] renderersBallon;
+
+    private Vector3 positionInitiale;
+
+    // Empêche plusieurs respawns en même temps
+    private bool enRespawn = false;
+
+
+    public void PousserBallon(Vector3 direction, float force)
+    {
+        if (!IsServer)
+            return;
+
+        if (rb == null)
+            return;
+
+        // Ne pas pousser le ballon pendant son respawn
+        if (enRespawn)
+            return;
+
+        Vector3 directionPoussee =
+            new Vector3(direction.x, 0f, direction.z).normalized;
+
+        rb.AddForce(
+            directionPoussee * force,
+            ForceMode.Force
+        );
+    }
+
+
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
 
-        // Seul le serveur gère la balle et lance sa physique.
-        if (!IsServer) return;
+        if (!IsServer)
+            return;
 
         if (instance != null && instance != this)
         {
-            Debug.LogError("Deux ballons réseau actifs sur le serveur.", this);
+            Debug.LogError(
+                "Deux ballons réseau actifs sur le serveur.",
+                this
+            );
+
             return;
         }
 
         instance = this;
+
+        rb = GetComponent<Rigidbody>();
+
+        networkTransform =
+            GetComponent<NetworkTransform>();
+
+        // Récupère automatiquement les colliders
+        collidersBallon =
+            GetComponentsInChildren<Collider>();
+
+        // Récupère automatiquement les renderers
+        renderersBallon =
+            GetComponentsInChildren<Renderer>();
+
+        // Sauvegarde la position de départ
+        positionInitiale = transform.position;
     }
+
 
     public override void OnNetworkDespawn()
     {
@@ -38,66 +92,280 @@ public class Ballon : NetworkBehaviour // objet réseau
         base.OnNetworkDespawn();
     }
 
-    /* Vérificaiton de la position de la balle pour voir si un but est compté
-    - Seul le serveur fait la validation
-    - Pas de validation si aucune partie en cours
 
-    - Détection de la position de la balle. S'il y a un but :
-    --- À implémenter On appelle la fonction pour augmenter le score du client hote (serveur) ou du client
-    --- On appelle la fonction LanceBalleMilieu qui va replacer la balle
-    */
-    void Update()
+    private void OnTriggerEnter(Collider other)
     {
-        if (!IsServer) return;
+        if (!IsServer)
+            return;
 
-        if (!GameManager.instance.partieEnCours) return; // Il faudra créer cette variable dans le GameManager
+        if (enRespawn)
+            return;
 
-        //but client
-        if (transform.position.x < -maxDistanceX)
+        // ==========================================
+        // SORTIE
+        // ==========================================
+
+        if (other.CompareTag("sortie"))
         {
-            // Ici, il faudra aussi augmenter le score du joueur
-            LanceBalleMilieu();
+            Debug.Log("SORTIE détectée");
+
+            // Joue le son d'échec chez Host + Client
+            JouerSonEchecClientRpc();
+
+            ReplacerBalle();
+
+            return;
         }
 
-        //but serveur (hôte)
-        if (transform.position.x > maxDistanceX)
+        // ==========================================
+        // GOAL HOST
+        // ==========================================
+
+        if (other.CompareTag("goalhost"))
         {
-            // Ici, il faudra aussi augmenter le score du joueur
-            LanceBalleMilieu();
+            Debug.Log("GOAL HOST détecté");
+
+            if (ScoreManager.instance != null)
+            {
+                ScoreManager.instance.AugmenteHoteScore();
+                LanceBalleMilieu();
+            }
+            else
+            {
+                Debug.LogError("ScoreManager.instance est NULL");
+            }
+
+            return;
+        }
+
+        // ==========================================
+        // GOAL CLIENT
+        // ==========================================
+
+        if (other.CompareTag("goalclient"))
+        {
+            Debug.Log("GOAL CLIENT détecté");
+
+            if (ScoreManager.instance != null)
+            {
+                ScoreManager.instance.AugmenteScoreClient();
+                LanceBalleMilieu();
+            }
+            else
+            {
+                Debug.LogError("ScoreManager.instance est NULL");
+            }
         }
     }
 
-    /* Fonction qui amorce la séquence pour replacer la balle au milieu. Fonction publique appelée aussi par
-    le script GameManager. (À implémenter)
-    - Cacul du nombre de bonds à 0
-    - On désactive l'interpolation du NetworkTransform pour éviter de voir l'interpolation de position de la balle
-    - On replace la balle au centre de la table et on remet à 0 sa vélocité
-    - Lancement d'une coroutine qui replacera et relancera la balle seulement si la partie n'est pas terminée
-    */
+    [ClientRpc]
+    private void JouerSonEchecClientRpc()
+    {
+        if (audioSource == null || sonEchec == null)
+            return;
+
+        StartCoroutine(JouerSonEchec());
+    }
+
+    private IEnumerator JouerSonEchec()
+    {
+        // Arrête un éventuel son déjà en cours
+        audioSource.Stop();
+
+        // Assigne le clip
+        audioSource.clip = sonEchec;
+
+        // Commence à la 6e seconde du fichier
+        audioSource.time = 6f;
+
+        // Lance le son
+        audioSource.Play();
+
+        // Attend 2 secondes
+        yield return new WaitForSecondsRealtime(2f);
+
+        // Arrête donc à la 8e seconde du fichier
+        audioSource.Stop();
+    }
+
+    // ==========================================
+    // SORTIE
+    // ==========================================
+
+    private void ReplacerBalle()
+    {
+        if (!IsServer)
+            return;
+
+        if (enRespawn)
+            return;
+
+        // false = ne pas relancer automatiquement
+        StartCoroutine(
+            RespawnBalle(false)
+        );
+    }
+
+
+    // ==========================================
+    // APRÈS UN BUT / DÉBUT DE PARTIE
+    // ==========================================
+
     public void LanceBalleMilieu()
     {
-        nombreDeBonds = 0;
-        GetComponent<NetworkTransform>().Interpolate = false;
-        transform.position = new Vector3(0f, 0.5f, 0f);
-        GetComponent<Rigidbody>().linearVelocity = new Vector3(0, 0, 0);
-        if (GameManager.instance.partieTerminee) return; // Il faudra créer cette variable dans le GameManager
-        StartCoroutine(NouvelleBalle());
+        if (!IsServer)
+            return;
+
+        if (enRespawn)
+            return;
+
+        // true = relancer après 1 seconde
+        StartCoroutine(
+            RespawnBalle(true)
+        );
     }
 
-    /* Coroutine qui fait suite à la fonction LanceBalleMilieu()
-    - Pause d'une seconde
-    - On réactive l'interpolation du NetworkTransform pour des déplacements fluides côté client
-    - Vélocité de la balle tirée au hasard et application de la force sur la balle
-    */
-    IEnumerator NouvelleBalle()
+
+    // ==========================================
+    // RESPAWN COMPLET
+    // ==========================================
+
+    private IEnumerator RespawnBalle(bool relancer)
     {
+        enRespawn = true;
+
+        nombreDeBonds = 0;
+
+
+        // ------------------------------------------
+        // ARRÊTE LA PHYSIQUE
+        // ------------------------------------------
+
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+
+        // Le ballon ne peut plus pousser les objets
+        rb.isKinematic = true;
+
+
+        // ------------------------------------------
+        // FAIT DISPARAÎTRE LE BALLON
+        // ------------------------------------------
+
+        ChangerEtatBallonClientRpc(false);
+
+
+        // ------------------------------------------
+        // DÉSACTIVE L'INTERPOLATION
+        // ------------------------------------------
+
+        networkTransform.Interpolate = false;
+
+
+        // ------------------------------------------
+        // REPLACE LE BALLON PENDANT QU'IL EST CACHÉ
+        // ------------------------------------------
+
+        transform.position = positionInitiale;
+
+        networkTransform.Teleport(
+            positionInitiale,
+            transform.rotation,
+            transform.localScale
+        );
+
+
+        // ------------------------------------------
+        // ATTEND 1 SECONDE
+        // ------------------------------------------
+
         yield return new WaitForSecondsRealtime(1f);
-        GetComponent<NetworkTransform>().Interpolate = true;
 
-        System.Random random = new System.Random();
-        float aleaX = random.Next(0, 2) == 0 ? -10 : 10; //  opérateur ternaire
-        float aleaZ = random.Next(0, 2) == 0 ? -10 : 10;
 
-        GetComponent<Rigidbody>().AddForce(aleaX, 0, aleaZ, ForceMode.Impulse);
+        // Si la partie est terminée,
+        // on peut quand même faire réapparaître la balle
+        // mais on ne la relance pas.
+
+        networkTransform.Interpolate = true;
+
+
+        // ------------------------------------------
+        // RÉACTIVE LA PHYSIQUE
+        // ------------------------------------------
+
+        rb.isKinematic = false;
+
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+
+
+        // ------------------------------------------
+        // FAIT RÉAPPARAÎTRE LE BALLON
+        // ------------------------------------------
+
+        ChangerEtatBallonClientRpc(true);
+
+        enRespawn = false;
+
+
+        // ------------------------------------------
+        // RELANCE LA BALLE SI NÉCESSAIRE
+        // ------------------------------------------
+
+        if (!relancer)
+            yield break;
+
+
+        if (GameManager.instance != null &&
+            GameManager.instance.partieTerminee)
+        {
+            yield break;
+        }
+
+
+        System.Random random =
+            new System.Random();
+
+        float aleaX =
+            random.Next(0, 2) == 0 ? -10 : 10;
+
+        float aleaZ =
+            random.Next(0, 2) == 0 ? -10 : 10;
+
+
+        rb.AddForce(
+            aleaX,
+            0f,
+            aleaZ,
+            ForceMode.Impulse
+        );
+    }
+
+
+    // ==========================================
+    // VISIBILITÉ / COLLIDERS RÉSEAU
+    // ==========================================
+
+    [ClientRpc]
+    private void ChangerEtatBallonClientRpc(bool actif)
+    {
+        // Affichage
+        Renderer[] renderers =
+            GetComponentsInChildren<Renderer>();
+
+        foreach (Renderer r in renderers)
+        {
+            r.enabled = actif;
+        }
+
+
+        // Collisions
+        Collider[] colliders =
+            GetComponentsInChildren<Collider>();
+
+        foreach (Collider c in colliders)
+        {
+            c.enabled = actif;
+        }
     }
 }

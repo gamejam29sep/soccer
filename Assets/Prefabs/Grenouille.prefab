@@ -100,15 +100,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 48f94bf7740a0224baf46a7aa3def003, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -3.394
+      value: -2.26
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 48f94bf7740a0224baf46a7aa3def003, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.98
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 48f94bf7740a0224baf46a7aa3def003, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -0.384
+      value: 0.93
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 48f94bf7740a0224baf46a7aa3def003, type: 3}
       propertyPath: m_LocalRotation.w
@@ -150,6 +150,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Grenouille
       objectReference: {fileID: 0}
+    - target: {fileID: 5866666021909216657, guid: 48f94bf7740a0224baf46a7aa3def003, type: 3}
+      propertyPath: m_Controller
+      value: 
+      objectReference: {fileID: 9100000, guid: 35d4c9bc05e1f844c90969469e951211, type: 2}
     m_RemovedComponents:
     - {fileID: -5754084199372789682, guid: 48f94bf7740a0224baf46a7aa3def003, type: 3}
     - {fileID: -7511558181221131132, guid: 48f94bf7740a0224baf46a7aa3def003, type: 3}
@@ -192,14 +196,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 3019802363
+  GlobalObjectIdHash: 617942672
   InScenePlacedSourceGlobalObjectIdHash: 0
   m_InScenePlacedDisabledByDefault: 0
   DeferredDespawnTick: 0
   Ownership: 1
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
-  m_InScenePlaced: 1
+  m_InScenePlaced: 0
   ActiveSceneSynchronization: 0
   SceneMigrationSynchronization: 0
   SpawnWithObservers: 1
@@ -272,10 +276,10 @@ CapsuleCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 2
-  m_Radius: 0.5
-  m_Height: 1
+  m_Radius: 0.2751896
+  m_Height: 0.563022
   m_Direction: 1
-  m_Center: {x: 0, y: 0, z: 0}
+  m_Center: {x: 3.7227665e-10, y: 0.022943245, z: 0.015804227}
 --- !u!54 &6019931459335254125
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -317,6 +321,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GrenouilleJoueur
   ShowTopMostFoldoutHeaderGroup: 1
   vitesse: 4
+  forcePousseeBallon: 3
 --- !u!4 &4384162478587596192 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 48f94bf7740a0224baf46a7aa3def003, type: 3}

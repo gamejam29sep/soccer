@@ -1,17 +1,45 @@
 using UnityEngine;
-using Unity.Netcode; // namespace pour utiliser Netcode
-using UnityEngine.SceneManagement; // namespace pour la gestion des scènes
+using Unity.Netcode;
+using UnityEngine.SceneManagement;
 
-
-public class GameManager : NetworkBehaviour //pour un network object
+public class GameManager : NetworkBehaviour
 {
-    public static GameManager instance;// Singleton pour parler au GameManager de n'importe où
+    public static GameManager instance;
 
-    public bool partieEnCours { private set; get; } //permet de savoir si une partie est en cours
-    public bool partieTerminee { private set; get; } // permet de savoir si une partie est terminée
+    public bool partieEnCours { private set; get; }
+    public bool partieTerminee { private set; get; }
 
-    // Création du singleton si nécessaire
-    void Awake()
+    // ==========================================
+    // POSITIONS DES JOUEURS
+    // ==========================================
+
+    [Header("Positions des joueurs")]
+    [SerializeField] private Transform spawnHost;
+    [SerializeField] private Transform spawnClient;
+
+    public Transform SpawnHost => spawnHost;
+    public Transform SpawnClient => spawnClient;
+
+
+    // ==========================================
+    // UI
+    // ==========================================
+
+    [Header("UI à cacher")]
+    [SerializeField] private GameObject image1;
+    [SerializeField] private GameObject image2;
+    [SerializeField] private GameObject image3;
+
+
+    // ==========================================
+    // AUDIO
+    // ==========================================
+
+    [Header("Audio")]
+    [SerializeField] private AudioSource audioIntro;
+
+
+    private void Awake()
     {
         if (instance == null)
         {
@@ -23,47 +51,229 @@ public class GameManager : NetworkBehaviour //pour un network object
         }
     }
 
-    void Update()
-    {
-        if (!IsHost) return;
-        if (partieEnCours) return;
 
+    private void Update()
+    {
+        // Seulement l'hôte vérifie le lancement de la partie
+        if (!IsHost)
+            return;
+
+        if (partieEnCours)
+            return;
+
+        if (partieTerminee)
+            return;
+
+        // Lance la partie lorsqu'il y a 2 joueurs
         if (NetworkManager.Singleton.ConnectedClientsList.Count >= 2)
         {
             NouvellePartie();
         }
-
     }
 
-    // Activation d'une nouvelle partie lorsque 2 joueurs. On appelle la fonction de la balle qui
-    // la place au milieu et qui lui donne une vélocité.
+
+    // ==========================================
+    // NOUVELLE PARTIE
+    // ==========================================
+
     public void NouvellePartie()
     {
         if (Ballon.instance == null)
         {
-            Debug.LogError("Aucun ballon actif dans la scène Gameplay.");
+            Debug.LogError(
+                "Aucun ballon actif dans la scène Gameplay."
+            );
+
             return;
         }
 
         partieEnCours = true;
+        partieTerminee = false;
+
         Ballon.instance.LanceBalleMilieu();
+
+        Debug.Log("Nouvelle partie commencée.");
     }
 
-    // Fonction appelée par le ScoreManager pour terminer la partie (nous l'utilserons plus tard)
-    public void FinPartie()
+
+    // ==========================================
+    // FIN DE PARTIE
+    // ==========================================
+
+    // true  = Host gagne
+    // false = Client gagne
+
+    public void FinPartie(bool hoteGagne)
     {
+        // Seul le serveur décide qui gagne
+        if (!IsServer)
+            return;
+
+        // Empêche plusieurs fins de partie
+        if (partieTerminee)
+            return;
+
         partieTerminee = true;
+        partieEnCours = false;
+
+        if (hoteGagne)
+        {
+            Debug.Log("FIN DE PARTIE : HOST GAGNE");
+        }
+        else
+        {
+            Debug.Log("FIN DE PARTIE : CLIENT GAGNE");
+        }
+
+        // Informe les deux joueurs
+        FinPartieClientRpc(hoteGagne);
     }
 
-    // Fonction appelée pour le bouton qui permet de se connecter comme hôte
-    public void LanceCommeHote() // Public pour être appeler de l'extérieur (par le bouton Hôte)
+
+    // ==========================================
+    // VICTOIRE / ÉCHEC
+    // ==========================================
+
+    [ClientRpc]
+    private void FinPartieClientRpc(bool hoteGagne)
     {
-        NetworkManager.Singleton.StartHost(); // Fonction du NetworkManager pour démarrer une partie comme hôte
+        // Identifiant du joueur sur cette machine
+        ulong monClientId =
+            NetworkManager.Singleton.LocalClientId;
+
+        // Vérifie si cette machine est l'hôte
+        bool jeSuisHote =
+            monClientId ==
+            NetworkManager.ServerClientId;
+
+        bool jaiGagne;
+
+
+        // ======================================
+        // HOST GAGNE
+        // ======================================
+
+        if (hoteGagne)
+        {
+            // Le Host gagne,
+            // donc seul le Host voit Victoire
+            jaiGagne = jeSuisHote;
+        }
+
+        // ======================================
+        // CLIENT GAGNE
+        // ======================================
+
+        else
+        {
+            // Le Client gagne,
+            // donc celui qui n'est pas Host gagne
+            jaiGagne = !jeSuisHote;
+        }
+
+
+        // ======================================
+        // CHARGE LA SCÈNE LOCALE
+        // ======================================
+
+        if (jaiGagne)
+        {
+            Debug.Log("JE SUIS LE GAGNANT");
+
+            SceneManager.LoadScene("Victoire");
+        }
+        else
+        {
+            Debug.Log("J'AI PERDU");
+
+            SceneManager.LoadScene("Echec");
+        }
     }
 
-    // Fonction appelée pour le bouton qui permet de se connecter comme client
-    public void LanceCommeClient() // Public pour être appeler de l'extérieur (par le bouton Client)
+
+    // ==========================================
+    // CACHE L'UI DE CONNEXION
+    // ==========================================
+
+    private void CacherUIConnexion()
     {
-        NetworkManager.Singleton.StartClient(); // Fonction du NetworkManager pour démarrer une partie comme client
+        if (image1 != null)
+            image1.SetActive(false);
+
+        if (image2 != null)
+            image2.SetActive(false);
+
+        if (image3 != null)
+            image3.SetActive(false);
+    }
+
+
+    // ==========================================
+    // ARRÊTE LE SON D'INTRO
+    // ==========================================
+
+    private void ArreterSonIntro()
+    {
+        if (audioIntro != null &&
+            audioIntro.isPlaying)
+        {
+            audioIntro.Stop();
+        }
+    }
+
+
+    // ==========================================
+    // LANCER COMME HÔTE
+    // ==========================================
+
+    public void LanceCommeHote()
+    {
+        if (NetworkManager.Singleton.IsListening)
+        {
+            Debug.LogWarning(
+                "Le NetworkManager est déjà lancé."
+            );
+
+            return;
+        }
+
+        // Arrête la musique / son d'intro
+        ArreterSonIntro();
+
+        // Démarre le Host
+        NetworkManager.Singleton.StartHost();
+
+        // Cache l'écran de connexion
+        CacherUIConnexion();
+
+        Debug.Log("Partie lancée comme HOST.");
+    }
+
+
+    // ==========================================
+    // LANCER COMME CLIENT
+    // ==========================================
+
+    public void LanceCommeClient()
+    {
+        if (NetworkManager.Singleton.IsListening)
+        {
+            Debug.LogWarning(
+                "Le NetworkManager est déjà lancé."
+            );
+
+            return;
+        }
+
+        // Arrête la musique / son d'intro
+        ArreterSonIntro();
+
+        // Démarre le Client
+        NetworkManager.Singleton.StartClient();
+
+        // Cache l'écran de connexion
+        CacherUIConnexion();
+
+        Debug.Log("Partie lancée comme CLIENT.");
     }
 }
